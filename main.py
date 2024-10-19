@@ -27,7 +27,7 @@ def webhook():
     return "OK"
 
 # Set up webhook
-@app.before_first_request
+@app.before_request
 def setup_webhook():
     REPLIT_URL = 'telegram-donation-bot-production.up.railway.app'  # Replace with your Railway app URL
     webhook_url = f"https://{REPLIT_URL}/{SECRET}"
