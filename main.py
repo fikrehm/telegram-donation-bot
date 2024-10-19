@@ -21,10 +21,17 @@ CHANNEL_ID = 1002442298921
 
 @app.route(f'/{SECRET}', methods=['POST'])
 def webhook():
-    json_str = request.get_data().decode('UTF-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
+    print("Webhook triggered")
+    update = Update.de_json(request.get_json(force=True), bot)
+    print("Update:", update)  # Log the incoming update
+    if update.message:
+        print("Webhook received message")
+        handle_message(update)
+    elif update.callback_query:
+        print("Webhook received callback")
+        handle_callback(update)
     return "OK"
+
 
 # Set up webhook
 @app.before_request
