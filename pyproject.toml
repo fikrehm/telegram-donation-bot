@@ -2,7 +2,7 @@
 name = "your-package-name"
 version = "0.1.0"
 description = "A simple Telegram donation bot."
-authors = ["fikrehmariam77@gmail.com"]  # Add this line
+authors = ["fikre <fikrehmariam77@gmail.com.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
