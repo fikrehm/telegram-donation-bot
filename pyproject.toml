@@ -1,14 +1,15 @@
 [tool.poetry]
-name = "telegram-bot-python"
+name = "your-package-name"
 version = "0.1.0"
-description = ""
-readme = "README.md"
+description = "A simple Telegram donation bot."
+authors = ["fikrehmariam77@gmail.com"]  # Add this line
 
 [tool.poetry.dependencies]
 python = "^3.11"
-pytelegrambotapi = "^4.21.0"
-python-dotenv = "^1.0.1"
+telebot = "^3.7"
+python-dotenv = "^0.21.0"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
