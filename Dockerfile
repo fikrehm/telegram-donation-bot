@@ -1,14 +1,19 @@
-FROM python:3.11.6-slim
+# Use the official Python image from the Docker Hub
+FROM python:3.11-slim
 
+# Set the working directory
 WORKDIR /app
 
-COPY . /app
+# Copy the requirements and other files
+COPY pyproject.toml ./
+COPY main.py ./
+COPY .env ./
 
-RUN pip install --upgrade pip
+# Install Poetry
 RUN pip install poetry
 
-RUN poetry config virtualenvs.create false
-
+# Install dependencies
 RUN poetry install --no-dev
 
+# Command to run the bot
 CMD ["poetry", "run", "python", "main.py"]
