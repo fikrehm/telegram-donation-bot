@@ -29,7 +29,7 @@ def webhook():
 # Set up webhook
 @app.before_first_request
 def setup_webhook():
-    REPLIT_URL = 'your-railway-app-url'  # Replace with your Railway app URL
+    REPLIT_URL = 'telegram-donation-bot-production.up.railway.app'  # Replace with your Railway app URL
     webhook_url = f"https://{REPLIT_URL}/{SECRET}"
     bot.remove_webhook()
     bot.set_webhook(url=webhook_url)
