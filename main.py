@@ -14,7 +14,7 @@ goal = 100000  # Set your donation goal
 
 ADMIN_GROUP_ID = -1002262363425  # Admin group ID
 CHANNEL_ID = -1002442298921  # Public channel ID
-PRIVATE_CHANNEL_ID = -1002483781048  # Private channel ID for tracking donations
+PRIVATE_CHANNEL_ID = -100248378104  # Private channel ID for tracking donations
 
 def get_pinned_message():
     """Fetch the pinned message from the private channel."""
