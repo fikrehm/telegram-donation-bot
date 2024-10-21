@@ -1,11 +1,12 @@
 import os
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Replace 'TELEGRAM_BOT_TOKEN' with the token you received from BotFather
+# Bot token and group/channel IDs
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
@@ -15,8 +16,8 @@ total_donated = 0
 goal = 100000  # Set your donation goal
 
 # Admin group ID and public channel ID
-ADMIN_GROUP_ID = -1002262363425  # Ensure this is a negative number for group chats
-CHANNEL_ID = -1002442298921  # Ensure this is a negative number for channel IDs
+ADMIN_GROUP_ID = -1002262363425  # Make sure this is the correct group ID
+CHANNEL_ID = -1002442298921  # Ensure this is your public channel ID
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -30,6 +31,7 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_message)
 
+# Handle donation amounts
 @bot.message_handler(commands=['donate'])
 def handle_donation(message):
     try:
@@ -39,23 +41,58 @@ def handle_donation(message):
     except (IndexError, ValueError):
         bot.reply_to(message, "Invalid format. Please use /donate <amount>.")
 
+# Handle screenshot/photo uploads
 @bot.message_handler(content_types=['photo'])
 def handle_photo_verification(message):
     chat_id = message.chat.id
+    username = message.from_user.username
+
     if chat_id in donations:
         photo_id = message.photo[-1].file_id
-        bot.send_message(
-            ADMIN_GROUP_ID,
-            f"New donation verification from {message.from_user.username}.\n"
-            f"Amount: {donations[chat_id]}",
-        )
+        
+        # Forward the photo to the admin group with verification buttons
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✅ Verify", callback_data=f"verify_{chat_id}"),
+                   InlineKeyboardButton("❌ Reject", callback_data=f"reject_{chat_id}"))
+
+        bot.send_message(ADMIN_GROUP_ID, f"New donation verification from @{username}.\nAmount: {donations[chat_id]}")
+        bot.send_photo(ADMIN_GROUP_ID, photo_id, caption=f"Donation screenshot from @{username}",
+                       reply_markup=markup)
+        
         bot.reply_to(message, "Your screenshot has been received. Please wait for admin verification.")
     else:
         bot.reply_to(message, "Please donate first before sending a screenshot.")
 
-@bot.message_handler(func=lambda msg: True)
-def echo_all(message):
-    bot.reply_to(message, message.text)
+# Handle admin verification actions (verify/reject)
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('verify_', 'reject_')))
+def handle_verification(call):
+    action, user_chat_id = call.data.split('_')
+    user_chat_id = int(user_chat_id)
 
+    if action == 'verify':
+        verify_donation(user_chat_id)
+        bot.answer_callback_query(call.id, "Donation verified!")
+    elif action == 'reject':
+        reject_donation(user_chat_id)
+        bot.answer_callback_query(call.id, "Donation rejected.")
+
+# Function to verify the donation
+def verify_donation(chat_id):
+    global total_donated
+    amount = donations.get(chat_id, 0)
+    total_donated += amount
+    
+    # Thank the user for their donation
+    bot.send_message(chat_id, f"Your donation of {amount} has been verified. Thank you for your generosity!")
+    
+    # Post an update to the public channel
+    bot.send_message(CHANNEL_ID, f"🎉 @{bot.get_chat(chat_id).username} donated {amount}!\n"
+                                 f"Total donations so far: {total_donated}/{goal}.")
+
+# Function to reject the donation
+def reject_donation(chat_id):
+    bot.send_message(chat_id, "Sorry, your donation could not be verified by the admins.")
+
+# Start the bot polling
 if __name__ == '__main__':
     bot.polling()
