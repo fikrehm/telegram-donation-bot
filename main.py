@@ -10,44 +10,52 @@ load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# Admin group and channel IDs
-ADMIN_GROUP_ID = -1002262363425  # Admin group for verification
-CHANNEL_ID = -1002442298921  # Public channel for donation announcements
-PRIVATE_CHANNEL_ID = -1002483781048  # Private channel for tracking total donations
-
-# Donation goal
+donations = {}
 goal = 100000  # Set your donation goal
 
-# Helper function to get the last total donation amount from the private channel
-def get_total_donated():
+# Admin group ID, public channel ID, and private channel ID for total donations
+ADMIN_GROUP_ID = -1002262363425
+CHANNEL_ID = -1002442298921
+PRIVATE_CHANNEL_ID = -1002483781048  # Channel where the total donations are tracked
+
+def get_latest_total():
+    """Fetch the latest total donation amount from the last message in the private channel."""
     try:
-        # Fetch the last message in the private channel
         messages = bot.get_chat_history(PRIVATE_CHANNEL_ID, limit=1)
-        last_message = messages[0].text if messages else "0"
-        # Ensure only numbers are parsed as total donations
-        return int(last_message) if last_message.isdigit() else 0
+        if messages and messages[0].text.isdigit():
+            return int(messages[0].text)
     except Exception as e:
         print(f"Error fetching total donations: {e}")
-        return 0
+    return 0
 
-# Update the total donations message in the private channel
-def update_total_donated(new_total):
+def update_total_message(new_total):
+    """Update the last message in the private channel with the new total."""
     try:
-        # Send the updated total to the private channel
-        message = bot.send_message(PRIVATE_CHANNEL_ID, str(new_total))
-        bot.pin_chat_message(PRIVATE_CHANNEL_ID, message.message_id)
+        messages = bot.get_chat_history(PRIVATE_CHANNEL_ID, limit=1)
+        if messages:
+            bot.edit_message_text(
+                chat_id=PRIVATE_CHANNEL_ID,
+                message_id=messages[0].message_id,
+                text=str(new_total)
+            )
+        else:
+            # If no message exists, send and pin a new one
+            message = bot.send_message(PRIVATE_CHANNEL_ID, str(new_total))
+            bot.pin_chat_message(PRIVATE_CHANNEL_ID, message.message_id)
     except Exception as e:
         print(f"Error updating total donations: {e}")
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_message = (
-        "Hello! I'm your donation bot. Thank you for your interest in donating! "
-        "Here are the methods you can use to donate:\n"
+        "Hello! I'm your donation bot. Here are the methods you can use to donate:\n"
         "1. Bank transfer: [Bank details]\n"
         "2. Telebirr: [Telebirr details]\n"
         "3. CBE: [CBE details]\n\n"
-        "To donate, use /donate <amount> or /donate_anon <amount> for anonymous donations."
+        "After donating, please send a screenshot for verification.\n"
+        "Commands:\n"
+        "/donate <amount> - Donate with your username\n"
+        "/donate_anon <amount> - Donate anonymously"
     )
     bot.reply_to(message, welcome_message)
 
@@ -57,27 +65,26 @@ def handle_donation(message):
     try:
         cmd = message.text.split(' ')[0]
         amount = int(message.text.split(' ')[1])
+        
+        if amount <= 0:
+            raise ValueError("Invalid amount")
+
         anonymous = (cmd == '/donate_anon')
-
-        # Store donation with anonymity preference
+        username = "Anonymous" if anonymous else message.from_user.username
         donations[message.chat.id] = {'amount': amount, 'anonymous': anonymous}
-        
-        donor_name = "Anonymous" if anonymous else f"@{message.from_user.username}"
-        bot.reply_to(message, f"Thank you for your donation of {amount}! Please send a screenshot for verification.")
-        
-    except (IndexError, ValueError):
-        bot.reply_to(message, "Invalid format. Please use /donate <amount> or /donate_anon <amount>.")
 
-# Handle screenshot/photo uploads
+        bot.reply_to(message, f"Thank you for your donation of {amount}! Please send a screenshot for verification.")
+    except (IndexError, ValueError):
+        bot.reply_to(message, "Invalid format or amount. Please use /donate <amount> or /donate_anon <amount>.")
+
 @bot.message_handler(content_types=['photo'])
 def handle_photo_verification(message):
     chat_id = message.chat.id
-    donation_info = donations.get(chat_id)
-
-    if donation_info:
+    username = message.from_user.username if not donations[chat_id].get("anonymous") else "Anonymous"
+    
+    if chat_id in donations:
         photo_id = message.photo[-1].file_id
-        amount = donation_info['amount']
-        donor_name = "Anonymous" if donation_info['anonymous'] else f"@{message.from_user.username}"
+        amount = donations[chat_id]['amount']
         
         # Forward the photo to the admin group with verification buttons
         markup = InlineKeyboardMarkup()
@@ -86,58 +93,59 @@ def handle_photo_verification(message):
             InlineKeyboardButton("❌ Reject", callback_data=f"reject_{chat_id}")
         )
 
-        # Send photo and amount to admin group
         bot.send_photo(
             ADMIN_GROUP_ID, 
             photo_id, 
-            caption=f"Donation screenshot from {donor_name}, Amount: {amount}", 
+            caption=f"Donation screenshot from @{username}\nAmount: {amount}",
             reply_markup=markup
         )
         bot.reply_to(message, "Your screenshot has been received. Please wait for admin verification.")
     else:
         bot.reply_to(message, "Please donate first before sending a screenshot.")
 
-# Handle admin verification actions (verify/reject)
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('verify_', 'reject_')))
 def handle_verification(call):
     action, user_chat_id = call.data.split('_')
     user_chat_id = int(user_chat_id)
-    donation_info = donations.get(user_chat_id)
 
-    if donation_info:
-        amount = donation_info['amount']
-        donor_name = "Anonymous" if donation_info['anonymous'] else bot.get_chat(user_chat_id).username
-        if action == 'verify':
-            verify_donation(user_chat_id, amount, donor_name, call)
-        elif action == 'reject':
-            reject_donation(user_chat_id, call)
+    if action == 'verify':
+        verify_donation(user_chat_id, call)
+        bot.answer_callback_query(call.id, "Donation verified!")
+    elif action == 'reject':
+        reject_donation(user_chat_id, call)
+        bot.answer_callback_query(call.id, "Donation rejected.")
 
-# Verify donation and update the total in the private channel
-def verify_donation(chat_id, amount, donor_name, call):
-    # Get the current total from the private channel
-    current_total = get_total_donated()
-    new_total = current_total + amount
-    update_total_donated(new_total)  # Update the private channel message
+def verify_donation(chat_id, call):
+    global total_donated
+    amount = donations.get(chat_id, {}).get("amount", 0)
+    latest_total = get_latest_total()  # Fetch the current total
+    
+    # Update the total donations and post to public channel
+    new_total = latest_total + amount
+    update_total_message(new_total)
 
-    # Thank the user and notify the public channel
+    # Thank the user for their donation
     bot.send_message(chat_id, f"Your donation of {amount} has been verified. Thank you for your generosity!")
-    bot.send_message(CHANNEL_ID, f"🎉 {donor_name} donated {amount}!\nTotal donations so far: {new_total}/{goal}.")
-
-    # Edit the admin message to mark it as verified and remove the buttons
+    
+    # Edit the message in the admin group to show it's verified
     bot.edit_message_caption(
-        caption=f"Donation from {donor_name}, Amount: {amount} (✅ Verified)", 
-        chat_id=call.message.chat.id, 
-        message_id=call.message.message_id
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        caption=f"Donation from @{bot.get_chat(chat_id).username or 'Anonymous'}: {amount} (✅ Verified)"
     )
 
-# Reject the donation and notify the user
+    # Post an update to the public channel
+    bot.send_message(CHANNEL_ID, f"🎉 Donation received: {amount}!\n"
+                                 f"Total donations so far: {new_total}/{goal}.")
+
 def reject_donation(chat_id, call):
     bot.send_message(chat_id, "Sorry, your donation could not be verified by the admins.")
-    # Edit the admin message to mark it as rejected and remove the buttons
+    
+    # Edit the message in the admin group to show it's rejected
     bot.edit_message_caption(
-        caption="Donation rejected ❌", 
-        chat_id=call.message.chat.id, 
-        message_id=call.message.message_id
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        caption=f"Donation from @{bot.get_chat(chat_id).username or 'Anonymous'}: (❌ Rejected)"
     )
 
 if __name__ == '__main__':
