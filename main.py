@@ -21,9 +21,12 @@ PRIVATE_CHANNEL_ID = -1002483781048  # Channel to read total donations
 
 # Function to fetch the latest total donations from the private channel
 def fetch_total_donated():
-    updates = bot.get_chat_history(PRIVATE_CHANNEL_ID, limit=1)
-    if updates and updates[0].text.isdigit():
-        return int(updates[0].text)
+    updates = bot.get_updates(limit=100)
+    for update in reversed(updates):
+        if update.message and update.message.chat.id == PRIVATE_CHANNEL_ID:
+            text = update.message.text
+            if text.isdigit():
+                return int(text)
     return 0
 
 # Command for /start
