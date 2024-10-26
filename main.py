@@ -6,56 +6,19 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Bot token and group/channel IDs
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
+# Donation goal
+goal = 100000
+
+# Admin group ID and public channel ID
+ADMIN_GROUP_ID = -1002262363425  # Your admin group ID
+CHANNEL_ID = -1002442298921      # Your public channel ID
+
+# Keep track of donations
 donations = {}
-goal = 100000  # Set your donation goal
-
-ADMIN_GROUP_ID = -1002262363425  # Private group for admins
-CHANNEL_ID = -1002442298921  # Public channel to announce donations
-
-# Function to fetch the current total from the pinned message
-def get_pinned_total():
-    try:
-        chat = bot.get_chat(ADMIN_GROUP_ID)
-        pinned_message = chat.pinned_message
-        if pinned_message and pinned_message.text.startswith("Total Donations:"):
-            return int(pinned_message.text.split(':')[1].strip())
-        else:
-            # If no valid pinned message, create one with 0
-            msg = bot.send_message(ADMIN_GROUP_ID, "Total Donations: 0")
-            bot.pin_chat_message(ADMIN_GROUP_ID, msg.message_id)
-            return 0
-    except Exception as e:
-        print(f"Error fetching pinned message: {e}")
-        return 0
-
-# Function to update the pinned message with the new total
-def update_pinned_total(new_total):
-    try:
-        chat = bot.get_chat(ADMIN_GROUP_ID)
-        pinned_message = chat.pinned_message
-        if pinned_message:
-            bot.edit_message_text(
-                chat_id=ADMIN_GROUP_ID,
-                message_id=pinned_message.message_id,
-                text=f"Total Donations: {new_total}/{goal}"
-            )
-        else:
-            # Create and pin a new message if no pinned message exists
-            msg = bot.send_message(ADMIN_GROUP_ID, f"Total Donations: {new_total}/{goal}")
-            bot.pin_chat_message(ADMIN_GROUP_ID, msg.message_id)
-    except Exception as e:
-        print(f"Error updating pinned message: {e}")
-
-# Function to validate donation amount
-def validate_amount(amount_text):
-    try:
-        amount = int(amount_text)
-        return amount if amount > 0 else None
-    except ValueError:
-        return None
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -72,44 +35,42 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_message)
 
-@bot.message_handler(commands=['donate', 'donate_anon'])
+@bot.message_handler(commands=['donate'])
 def handle_donation(message):
     try:
-        cmd = message.text.split(' ')[0]
-        amount = validate_amount(message.text.split(' ')[1])
-        
-        if not amount:
-            bot.reply_to(message, "Please enter a valid positive amount.")
+        # Retrieve amount and anonymous preference
+        parts = message.text.split(' ')
+        amount = int(parts[1])
+        anonymous = len(parts) > 2 and parts[2].lower() == 'anonymous'
+
+        # Validate donation amount
+        if amount <= 0:
+            bot.reply_to(message, "Please enter a positive amount to donate.")
             return
 
-        anonymous = (cmd == '/donate_anon')
-        username = message.from_user.username if not anonymous else "Anonymous"
-        donations[message.chat.id] = {'amount': amount, 'anonymous': anonymous}
-
+        donations[message.chat.id] = {"amount": amount, "anonymous": anonymous}
         bot.reply_to(message, f"Thank you for your donation of {amount}! Please send a screenshot for verification.")
     except (IndexError, ValueError):
-        bot.reply_to(message, "Invalid format. Please use /donate <amount> or /donate_anon <amount>.")
+        bot.reply_to(message, "Invalid format. Please use /donate <amount> [anonymous].")
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo_verification(message):
     chat_id = message.chat.id
-    if chat_id in donations:
+    username = message.from_user.username
+    donation_info = donations.get(chat_id)
+
+    if donation_info:
+        # Forward photo to admin group for verification
         photo_id = message.photo[-1].file_id
-        donation_info = donations[chat_id]
-        amount = donation_info['amount']
-        username = message.from_user.username if not donation_info['anonymous'] else "Anonymous"
-        
-        # Forward the photo to the admin group with verification buttons
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("✅ Verify", callback_data=f"verify_{chat_id}"),
                    InlineKeyboardButton("❌ Reject", callback_data=f"reject_{chat_id}"))
 
         bot.send_photo(
-            ADMIN_GROUP_ID, photo_id, 
-            caption=f"New donation verification from {username}.\nAmount: {amount}",
+            ADMIN_GROUP_ID, photo_id,
+            caption=f"Donation screenshot from @{username}.\nAmount: {donation_info['amount']}",
             reply_markup=markup
         )
-        
         bot.reply_to(message, "Your screenshot has been received. Please wait for admin verification.")
     else:
         bot.reply_to(message, "Please donate first before sending a screenshot.")
@@ -120,35 +81,50 @@ def handle_verification(call):
     user_chat_id = int(user_chat_id)
 
     if action == 'verify':
-        verify_donation(user_chat_id, call.message)
+        verify_donation(user_chat_id)
         bot.answer_callback_query(call.id, "Donation verified!")
     elif action == 'reject':
         reject_donation(user_chat_id)
         bot.answer_callback_query(call.id, "Donation rejected.")
 
-def verify_donation(chat_id, admin_message):
-    amount = donations.get(chat_id, {}).get('amount', 0)
-    if amount:
-        # Update total donation amount from the pinned message
-        total_donated = get_pinned_total() + amount
-        update_pinned_total(total_donated)
+def verify_donation(chat_id):
+    donation_info = donations.get(chat_id)
+    if not donation_info:
+        return
 
-        # Notify the user
-        bot.send_message(chat_id, f"Your donation of {amount} has been verified. Thank you for your generosity!")
-        
-        # Post update to the public channel
-        username = bot.get_chat(chat_id).username or "Anonymous"
-        bot.send_message(CHANNEL_ID, f"🎉 @{username} donated {amount}!\nTotal donations so far: {total_donated}/{goal}.")
-        
-        # Edit the admin message to mark as verified and remove buttons
-        bot.edit_message_caption(
-            caption=f"Donation from @{username} - Amount: {amount} (✅ Verified)",
-            chat_id=admin_message.chat.id,
-            message_id=admin_message.message_id
-        )
+    # Retrieve the latest total from the admin group
+    total_donated = get_latest_total_donations()
+
+    # Update total donations
+    total_donated += donation_info['amount']
+    update_total_donations(total_donated)
+
+    # Notify user and update channel
+    donor_name = "Anonymous" if donation_info['anonymous'] else f"@{bot.get_chat(chat_id).username}"
+    bot.send_message(chat_id, f"Your donation of {donation_info['amount']} has been verified. Thank you for your generosity!")
+    bot.send_message(CHANNEL_ID, f"🎉 {donor_name} donated {donation_info['amount']}!\nTotal donations so far: {total_donated}/{goal}.")
+
+    # Mark the message as verified in the admin group
+    bot.edit_message_caption(
+        chat_id=ADMIN_GROUP_ID, message_id=call.message.message_id,
+        caption=f"Donation screenshot from {donor_name}\nAmount: {donation_info['amount']} (Verified ✅)"
+    )
 
 def reject_donation(chat_id):
     bot.send_message(chat_id, "Sorry, your donation could not be verified by the admins.")
+
+def get_latest_total_donations():
+    messages = bot.get_chat_history(ADMIN_GROUP_ID, limit=100)
+    for msg in reversed(messages):
+        if "Total Donations" in msg.text:
+            try:
+                return int(msg.text.split(":")[1].strip())
+            except ValueError:
+                return 0
+    return 0
+
+def update_total_donations(total_donated):
+    bot.send_message(ADMIN_GROUP_ID, f"Total Donations: {total_donated}")
 
 if __name__ == '__main__':
     bot.polling()
