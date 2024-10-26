@@ -48,6 +48,7 @@ def send_help(message):
         "/help - List of commands"
     )
     bot.reply_to(message, help_message)
+
 # Handle donation amounts with option for anonymous donation
 @bot.message_handler(commands=['donate'])
 def handle_donation(message):
@@ -155,6 +156,18 @@ def reject_donation(chat_id, call):
         message_id=call.message.message_id
     )
     bot.answer_callback_query(call.id, "Donation rejected.")
+
+# Catch-all handler for non-command messages
+@bot.message_handler(func=lambda message: True)
+def handle_non_command(message):
+    reply = (
+        "I'm here to assist with donations!\n"
+        "Please use one of the following commands:\n\n"
+        "/start - Start the bot and learn more\n"
+        "/donate <amount> - Register a donation\n"
+        "/help - List all available commands"
+    )
+    bot.reply_to(message, reply)
 
 # Start the bot polling
 if __name__ == '__main__':
