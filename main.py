@@ -5,170 +5,149 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-# Bot token and group/channel IDs
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# Donation tracking
-donations = {}
-total_donated = 0
-goal = 100000  # Set your donation goal
+# IDs for the admin group and public channel
+ADMIN_GROUP_ID = -1001234567890  # Replace with your admin group ID
+CHANNEL_ID = -1009876543210      # Replace with your public channel ID
 
-# Admin group ID and public channel ID
-ADMIN_GROUP_ID = -1002262363425  # Replace with your admin group ID
-CHANNEL_ID = -1002442298921  # Replace with your public channel ID
-
-# Restrict access to certain commands
-def is_admin(chat_id):
-    # Check if user is an admin in the admin group
-    member_status = bot.get_chat_member(ADMIN_GROUP_ID, chat_id).status
+# Admin-only access check
+def is_admin(user_id):
+    member_status = bot.get_chat_member(ADMIN_GROUP_ID, user_id).status
     return member_status in ['administrator', 'creator']
+
+# Product information storage for verification
+products = {}
+
+# Increment options (percentage)
+increment_options = [5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000]
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    welcome_message = (
-        "Hello! I'm your donation bot. Thank you for your interest in donating! "
-        "Here are the methods you can use to donate:\n"
-        "1. Bank transfer: [Bank details]\n"
-        "2. Telebirr: [Telebirr details]\n"
-        "3. CBE: [CBE details]\n\n"
-        "After donating, please send a screenshot for verification.\n\n"
-        "Use /help to view available commands."
-    )
-    bot.reply_to(message, welcome_message)
+    bot.reply_to(message, "Welcome! Please use /sell to post your product for verification.")
 
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    help_message = (
-        "Available commands:\n"
-        "/start - Start the bot\n"
-        "/donate <amount> - Register a donation\n"
-        "/updateAmount <new_amount> - (Admin only) Update the total donation amount\n"
-        "/help - List of commands"
-    )
-    bot.reply_to(message, help_message)
+@bot.message_handler(commands=['sell'])
+def initiate_sale(message):
+    msg = bot.reply_to(message, "Please enter the product details in the following format:\nCategory | Product Name | Phone Number | Price (optional) | Description (optional)")
+    bot.register_next_step_handler(msg, process_product_details)
 
-# Handle donation amounts with option for anonymous donation
-@bot.message_handler(commands=['donate'])
-def handle_donation(message):
+def process_product_details(message):
     try:
-        args = message.text.split(' ')
-        amount = int(args[1])
-        anonymous = len(args) > 2 and args[2].lower() == 'anonymous'
+        details = message.text.split('|')
+        if len(details) < 3:
+            raise ValueError("Insufficient details")
         
-        donations[message.chat.id] = {'amount': amount, 'anonymous': anonymous}
-        confirmation_msg = (
-            f"Thank you for your donation of {amount}! Please send a screenshot for verification."
-            if not anonymous else
-            "Thank you for your anonymous donation! Please send a screenshot for verification."
-        )
-        bot.reply_to(message, confirmation_msg)
-    except (IndexError, ValueError):
-        bot.reply_to(message, "Invalid format. Please use /donate <amount> [anonymous].")
+        category, name, phone = details[:3]
+        price = details[3].strip() if len(details) > 3 else "N/A"
+        description = details[4].strip() if len(details) > 4 else "No description"
 
-# Update total donated amount (Admin only)
-@bot.message_handler(commands=['updateAmount'])
-def update_amount(message):
-    if is_admin(message.from_user.id):
-        try:
-            global total_donated
-            new_amount = int(message.text.split(' ')[1])
-            total_donated = new_amount
-            bot.reply_to(message, f"Total donation amount updated to {total_donated}.")
-        except (IndexError, ValueError):
-            bot.reply_to(message, "Please provide a valid amount. Usage: /updateAmount <new_amount>")
-    else:
-        bot.reply_to(message, "You do not have permission to use this command.")
+        # Save product details for admin verification
+        product_id = message.from_user.id
+        products[product_id] = {
+            'category': category.strip(),
+            'name': name.strip(),
+            'phone': phone.strip(),
+            'price': float(price) if price != "N/A" else 0,
+            'description': description
+        }
 
-# Handle screenshot/photo uploads for verification
-@bot.message_handler(content_types=['photo'])
-def handle_photo_verification(message):
-    chat_id = message.chat.id
-    user_info = donations.get(chat_id)
+        msg = bot.reply_to(message, "Please send product images now.")
+        bot.register_next_step_handler(msg, handle_images, product_id)
+    
+    except Exception as e:
+        bot.reply_to(message, "There was an error. Please use the format: Category | Product Name | Phone Number | Price (optional) | Description (optional)")
 
-    if user_info:
+def handle_images(message, product_id):
+    if message.photo:
         photo_id = message.photo[-1].file_id
-        amount = user_info['amount']
-        anonymous = user_info['anonymous']
+        products[product_id]['photo'] = photo_id
         
-        # Forward the photo to the admin group with verification buttons
+        # Send for admin verification
         markup = InlineKeyboardMarkup()
         markup.add(
-            InlineKeyboardButton("✅ Verify", callback_data=f"verify_{chat_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject_{chat_id}")
-        )
-
-        donor_text = "Anonymous donor" if anonymous else f"@{message.from_user.username}"
-        bot.send_message(
-            ADMIN_GROUP_ID, f"New donation verification from {donor_text}.\nAmount: {amount}"
-        )
-        bot.send_photo(
-            ADMIN_GROUP_ID, photo_id,
-            caption=f"Donation screenshot from {donor_text}",
-            reply_markup=markup
+            InlineKeyboardButton("✅ Verify", callback_data=f"verify_{product_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject_{product_id}")
         )
         
-        bot.reply_to(message, "Your screenshot has been received. Please wait for admin verification.")
+        bot.send_photo(
+            ADMIN_GROUP_ID, photo_id,
+            caption=f"New product verification:\n\n"
+                    f"Category: {products[product_id]['category']}\n"
+                    f"Name: {products[product_id]['name']}\n"
+                    f"Phone: {products[product_id]['phone']}\n"
+                    f"Seller's Price: {products[product_id]['price']}\n"
+                    f"Description: {products[product_id]['description']}",
+            reply_markup=markup
+        )
+        bot.reply_to(message, "Your product is submitted for verification. You’ll be notified once it’s verified.")
     else:
-        bot.reply_to(message, "Please donate first before sending a screenshot.")
+        bot.reply_to(message, "Please send a valid image.")
 
-# Handle admin verification actions (verify/reject)
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('verify_', 'reject_')))
 def handle_verification(call):
-    action, user_chat_id = call.data.split('_')
-    user_chat_id = int(user_chat_id)
+    action, user_id = call.data.split('_')
+    user_id = int(user_id)
 
     if action == 'verify':
-        verify_donation(user_chat_id, call)
+        request_increment(user_id, call)
     elif action == 'reject':
-        reject_donation(user_chat_id, call)
+        bot.answer_callback_query(call.id, "Product rejected.")
+        bot.send_message(user_id, "Your product was rejected.")
+        bot.edit_message_caption("Rejected ❌", call.message.chat.id, call.message.message_id)
 
-# Function to verify the donation
-def verify_donation(chat_id, call):
-    global total_donated
-    amount = donations.get(chat_id, {}).get('amount', 0)
-    total_donated += amount
+def request_increment(user_id, call):
+    markup = InlineKeyboardMarkup()
+    for percentage in increment_options:
+        markup.add(InlineKeyboardButton(f"{percentage}%", callback_data=f"inc_{user_id}_{percentage}"))
     
-    # Thank the user for their donation
-    bot.send_message(chat_id, f"Your donation of {amount} has been verified. Thank you for your generosity!")
-    
-    # Post an update to the public channel
-    donor_text = "Anonymous donor" if donations[chat_id]['anonymous'] else f"@{bot.get_chat(chat_id).username}"
-    bot.send_message(
-        CHANNEL_ID, f"🎉 {donor_text} donated {amount}!\nTotal donations so far: {total_donated}/{goal}."
-    )
-    
-    # Edit message in the admin group to indicate it's verified
     bot.edit_message_caption(
-        caption="Verified ✅",
+        caption=f"Set increment for seller’s price: {products[user_id]['price']}",
         chat_id=call.message.chat.id,
-        message_id=call.message.message_id
+        message_id=call.message.message_id,
+        reply_markup=markup
     )
-    bot.answer_callback_query(call.id, "Donation verified!")
 
-# Function to reject the donation
-def reject_donation(chat_id, call):
-    bot.send_message(chat_id, "Sorry, your donation could not be verified by the admins.")
+@bot.callback_query_handler(func=lambda call: call.data.startswith("inc_"))
+def handle_increment_selection(call):
+    _, user_id, increment = call.data.split('_')
+    user_id, increment = int(user_id), float(increment)
+
+    # Calculate new price
+    seller_price = products[user_id]['price']
+    new_price = round(seller_price + (seller_price * increment / 100), 2)
+    products[user_id]['new_price'] = new_price
+
+    # Confirm increment choice
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("✅ Post", callback_data=f"post_{user_id}"),
+        InlineKeyboardButton("🔄 Change Increment", callback_data=f"verify_{user_id}")
+    )
+    
     bot.edit_message_caption(
-        caption="Rejected ❌",
+        caption=f"New price: {new_price} (Original: {seller_price} + {increment}%)\n\nConfirm post?",
         chat_id=call.message.chat.id,
-        message_id=call.message.message_id
+        message_id=call.message.message_id,
+        reply_markup=markup
     )
-    bot.answer_callback_query(call.id, "Donation rejected.")
+    bot.answer_callback_query(call.id, f"New price calculated: {new_price}")
 
-# Catch-all handler for non-command messages
-@bot.message_handler(func=lambda message: True)
-def handle_non_command(message):
-    reply = (
-        "I'm here to assist with donations!\n"
-        "Please use one of the following commands:\n\n"
-        "/start - Start the bot and learn more\n"
-        "/donate <amount> - Register a donation\n"
-        "/help - List all available commands"
+@bot.callback_query_handler(func=lambda call: call.data.startswith("post_"))
+def post_product(call):
+    user_id = int(call.data.split('_')[1])
+    product = products[user_id]
+
+    bot.send_photo(
+        CHANNEL_ID, product['photo'],
+        caption=f"Category: {product['category']}\n"
+                f"Name: {product['name']}\n"
+                f"Description: {product['description']}\n"
+                f"Price: {product['new_price']}\n"
+                f"Contact: {product['phone']}"
     )
-    bot.reply_to(message, reply)
+    bot.edit_message_caption("Posted ✅", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, "Product posted!")
 
-# Start the bot polling
 if __name__ == '__main__':
     bot.polling()
