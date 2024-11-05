@@ -151,7 +151,5 @@ def post_product(call):
 
 if __name__ == '__main__':
     # Delete any existing webhook and start polling
-bot.remove_webhook()
-bot.polling()
-
+    bot.remove_webhook()
     bot.polling()
