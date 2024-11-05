@@ -150,4 +150,8 @@ def post_product(call):
     bot.answer_callback_query(call.id, "Product posted!")
 
 if __name__ == '__main__':
+    # Delete any existing webhook and start polling
+bot.remove_webhook()
+bot.polling()
+
     bot.polling()
