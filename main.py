@@ -13,6 +13,9 @@ ADMIN_GROUP_ID = -1002262363425  # Admin group for verification
 CHANNEL_ID = -1002442298921  # Public channel for approved listings
 BOT_PHONE_NUMBER = "+251991602186"  # Placeholder phone number for posts
 
+# Global dictionary to hold user data
+user_data = {}
+
 # Step 1: Start Command to Welcome Users
 @bot.message_handler(commands=['start'])
 def welcome_message(message):
@@ -59,7 +62,6 @@ def get_phone(message, product):
     bot.reply_to(message, "Now, please send a photo of the product.")
     bot.register_next_step_handler(message, get_photo, product)
 
-# Step 3: Get Product Details Step-by-Step (No change here, provided for context)
 def get_photo(message, product):
     if message.content_type != 'photo':
         bot.reply_to(message, "Please send a valid photo.")
@@ -87,23 +89,20 @@ def get_photo(message, product):
     )
     
     # Store product data and confirmation message ID for further processing
-    bot.user_data[message.from_user.id] = {"product": product, "confirmation_msg_id": confirmation_message.message_id}
+    user_data[message.from_user.id] = {"product": product, "confirmation_msg_id": confirmation_message.message_id}
 
-# Step 4: Handle Confirmation or Editing Request (Modified)
+# Step 4: Handle Confirmation or Editing Request
 @bot.callback_query_handler(func=lambda call: call.data in ["confirm_sell", "edit_sell"])
 def handle_confirmation(call):
     user_id = call.from_user.id
-    user_data = bot.user_data.get(user_id)
-    
-    if not user_data:
+    if user_id not in user_data:
         bot.answer_callback_query(call.id, "No product details found. Please restart the process with /sell.")
         return
 
-    product = user_data["product"]
-    confirmation_msg_id = user_data["confirmation_msg_id"]
+    product = user_data[user_id]["product"]
+    confirmation_msg_id = user_data[user_id]["confirmation_msg_id"]
 
     if call.data == "confirm_sell":
-        # Remove Confirm and Edit buttons from user's message
         bot.edit_message_reply_markup(call.message.chat.id, confirmation_msg_id, reply_markup=None)
         bot.send_message(call.message.chat.id, "Thank you! Your item is being reviewed by our admins. Please wait for confirmation.")
 
@@ -127,25 +126,21 @@ def handle_confirmation(call):
         )
 
     elif call.data == "edit_sell":
-        # Reset the process, starting with the product name
         bot.send_message(call.message.chat.id, "Let's edit your product details. Starting from the beginning.")
         initiate_sell(call.message)
 
 # Step 5: Admin Verification Process
-
-# Step 5: Admin Verification Process
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
 def handle_verification(call):
     user_id = int(call.data.split("_")[1])
-    product = bot.user_data.get(user_id)
+    product = user_data.get(user_id)["product"]
 
     if call.data.startswith("approve_"):
-        # Prompt for price adjustment
         markup = InlineKeyboardMarkup()
-        increments = [5, 7.5, 10, 15, 20, 25, 30, 50, 100, 150, 200, 500, 1000]
+        increments = [5, 10, 15, 20, 25, 50, 100, 500]
         buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
-        for i in range(0, len(buttons), 3):
-            markup.row(*buttons[i:i+3])
+        for i in range(0, len(buttons), 2):
+            markup.row(*buttons[i:i+2])
         bot.send_message(
             call.message.chat.id, 
             f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
@@ -159,48 +154,20 @@ def handle_verification(call):
         )
         bot.send_message(user_id, "Unfortunately, your product was not approved.")
 
-# Step 6: Apply Increment and Final Posting (Modified Increment Options)
-@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
-def handle_verification(call):
-    user_id = int(call.data.split("_")[1])
-    product = bot.user_data.get(user_id)
-
-    if call.data.startswith("approve_"):
-        # Updated increment options based on new range
-        markup = InlineKeyboardMarkup()
-        increments = [5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 250, 300, 350, 
-                      400, 450, 500, 600, 700, 800, 900, 1000]
-        buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
-        for i in range(0, len(buttons), 3):
-            markup.row(*buttons[i:i+3])
-        bot.send_message(
-            call.message.chat.id, 
-            f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
-            reply_markup=markup
-        )
-    else:
-        bot.edit_message_caption(
-            caption="Product **Rejected** ❌",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id
-        )
-        bot.send_message(user_id, "Unfortunately, your product was not approved.")
-
-
-
-# Step 6: Apply Increment and Final Posting
 @bot.callback_query_handler(func=lambda call: call.data.startswith("increment_"))
 def apply_increment(call):
     _, percent, user_id = call.data.split("_")
     user_id = int(user_id)
-    product = bot.user_data.get(user_id)
+    product = user_data[user_id]["product"]
     
     incremented_price = product['price'] * (1 + int(percent) / 100)
     product['final_price'] = round(incremented_price, 2)
     
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("✅ Post", callback_data=f"post_{user_id}"),
-               InlineKeyboardButton("🔄 Go Back", callback_data=f"back_{user_id}"))
+    markup.add(
+        InlineKeyboardButton("✅ Post", callback_data=f"post_{user_id}"),
+        InlineKeyboardButton("🔄 Go Back", callback_data=f"back_{user_id}")
+    )
     bot.send_message(
         call.message.chat.id, 
         f"Increment of {percent}% applied.\nNew Price: {product['final_price']}\n\nReady to post?",
@@ -210,13 +177,14 @@ def apply_increment(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("post_"))
 def post_to_channel(call):
     user_id = int(call.data.split("_")[1])
-    product = bot.user_data.pop(user_id, None)
+    product = user_data.pop(user_id, None)
     
     if product:
         post_text = (
             f"**{product['name']}**\n"
             f"Category: {product['category']}\n"
-            f"Price: {product['final_price']} {BOT_PHONE_NUMBER}\n"
+            f"Price: {product['final_price']}\n"
+            f"Contact: {BOT_PHONE_NUMBER}\n"
             f"Description: {product['description'] or 'No description provided'}"
         )
         bot.send_photo(CHANNEL_ID, product['photo'], caption=post_text)
