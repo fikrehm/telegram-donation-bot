@@ -131,7 +131,33 @@ def handle_confirmation(call):
         bot.send_message(call.message.chat.id, "Let's edit your product details. Starting from the beginning.")
         initiate_sell(call.message)
 
-# Step 5: Admin Verification Process (No change needed)
+# Step 5: Admin Verification Process
+
+# Step 5: Admin Verification Process
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
+def handle_verification(call):
+    user_id = int(call.data.split("_")[1])
+    product = bot.user_data.get(user_id)
+
+    if call.data.startswith("approve_"):
+        # Prompt for price adjustment
+        markup = InlineKeyboardMarkup()
+        increments = [5, 7.5, 10, 15, 20, 25, 30, 50, 100, 150, 200, 500, 1000]
+        buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
+        for i in range(0, len(buttons), 3):
+            markup.row(*buttons[i:i+3])
+        bot.send_message(
+            call.message.chat.id, 
+            f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
+            reply_markup=markup
+        )
+    else:
+        bot.edit_message_caption(
+            caption="Product **Rejected** ❌",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        bot.send_message(user_id, "Unfortunately, your product was not approved.")
 
 # Step 6: Apply Increment and Final Posting (Modified Increment Options)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
