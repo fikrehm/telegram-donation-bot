@@ -135,31 +135,38 @@ def handle_verification(call):
     user_id = int(call.data.split("_")[1])
     product = user_data.get(user_id)["product"]
 
-    if call.data.startswith("approve_"):
-        show_increment_options(call.message, product, user_id)
-    else:
-        bot.edit_message_caption(
-            caption="Product **Rejected** ❌",
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id
-        )
-        bot.send_message(user_id, "Unfortunately, your product was not approved.")
+    # Display approve and reject options with the go-back feature
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"reject_{user_id}")
+    )
+    bot.edit_message_caption(
+        caption=f"Verify product:\nName: {product['name']}\nPrice: {product['price']}\nDescription: {product['description'] or 'No description provided'}",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=markup
+    )
 
-def show_increment_options(message, product, user_id):
-    # Increment options up to 1000% as per your request
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_"))
+def show_increment_options(call):
+    user_id = int(call.data.split("_")[1])
+    product = user_data[user_id]["product"]
+
+    # Create buttons for each increment with the option to go back
     increments = [5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 
                   250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000]
     markup = InlineKeyboardMarkup()
-    
-    # Add two buttons per row for increments
     buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
     for i in range(0, len(buttons), 2):
         markup.row(*buttons[i:i+2])
-    
-    # Display increment options to the admin
-    bot.send_message(
-        message.chat.id, 
-        f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
+    markup.add(InlineKeyboardButton("🔄 Go Back", callback_data=f"back_to_approval_{user_id}"))
+
+    # Show increment options, editing the message caption to remove the previous buttons
+    bot.edit_message_caption(
+        caption=f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
         reply_markup=markup
     )
 
@@ -168,34 +175,45 @@ def apply_increment(call):
     _, percent, user_id = call.data.split("_")
     user_id = int(user_id)
     product = user_data[user_id]["product"]
-    
+
+    # Calculate new price based on the increment percentage
     incremented_price = product['price'] * (1 + float(percent) / 100)
     product['final_price'] = round(incremented_price, 2)
-    
+
+    # Show confirmation with Post and Go Back buttons
     markup = InlineKeyboardMarkup()
     markup.add(
         InlineKeyboardButton("✅ Post", callback_data=f"post_{user_id}"),
-        InlineKeyboardButton("🔄 Go Back", callback_data=f"back_{user_id}")
+        InlineKeyboardButton("🔄 Go Back", callback_data=f"back_to_increments_{user_id}")
     )
-    bot.send_message(
-        call.message.chat.id, 
-        f"Increment of {percent}% applied.\nNew Price: {product['final_price']}\n\nReady to post?",
+    bot.edit_message_caption(
+        caption=f"Increment of {percent}% applied.\nNew Price: {product['final_price']}\n\nReady to post?",
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
         reply_markup=markup
     )
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("back_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_increments_"))
 def go_back_to_increment(call):
     user_id = int(call.data.split("_")[1])
     product = user_data[user_id]["product"]
-    
-    # Re-display increment options
-    show_increment_options(call.message, product, user_id)
+
+    # Return to increment options
+    show_increment_options(call)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("back_to_approval_"))
+def go_back_to_approval(call):
+    user_id = int(call.data.split("_")[1])
+    product = user_data[user_id]["product"]
+
+    # Return to the approval screen with Approve/Reject options
+    handle_verification(call)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("post_"))
 def post_to_channel(call):
     user_id = int(call.data.split("_")[1])
     product = user_data.pop(user_id, None)
-    
+
     if product:
         post_text = (
             f"**{product['name']}**\n"
@@ -204,13 +222,17 @@ def post_to_channel(call):
             f"Contact: {BOT_PHONE_NUMBER}\n"
             f"Description: {product['description'] or 'No description provided'}"
         )
+        # Post the product image and caption to the public channel
         bot.send_photo(CHANNEL_ID, product['photo'], caption=post_text)
         bot.send_message(user_id, "🎉 Your item has been successfully posted!")
+
+    # Update the admin message to indicate posting is completed
     bot.edit_message_caption(
         caption="Product **Approved and Posted** ✅",
         chat_id=call.message.chat.id,
         message_id=call.message.message_id
     )
+
 
 # Start the bot polling
 if __name__ == '__main__':
