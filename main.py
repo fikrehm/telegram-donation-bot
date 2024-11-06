@@ -10,7 +10,7 @@ bot = telebot.TeleBot(TOKEN)
 
 # Define your admin and channel group IDs
 ADMIN_GROUP_ID = -1002262363425  # Admin group for verification
-CHANNEL_ID = -1002442298921  # Public channel for approved listings
+CHANNEL_ID = -1002359300420  # Public channel for approved listings
 BOT_PHONE_NUMBER = "+251991602186"  # Placeholder phone number for posts
 
 # Global dictionary to hold user data
