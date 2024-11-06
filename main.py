@@ -130,22 +130,13 @@ def handle_confirmation(call):
         initiate_sell(call.message)
 
 # Step 5: Admin Verification Process
-@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_") or call.data.startswith("reject_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_"))
 def handle_verification(call):
     user_id = int(call.data.split("_")[1])
     product = user_data.get(user_id)["product"]
 
     if call.data.startswith("approve_"):
-        markup = InlineKeyboardMarkup()
-        increments = [5, 10, 15, 20, 25, 50, 100, 500]
-        buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
-        for i in range(0, len(buttons), 2):
-            markup.row(*buttons[i:i+2])
-        bot.send_message(
-            call.message.chat.id, 
-            f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
-            reply_markup=markup
-        )
+        show_increment_options(call.message, product, user_id)
     else:
         bot.edit_message_caption(
             caption="Product **Rejected** ❌",
@@ -154,13 +145,31 @@ def handle_verification(call):
         )
         bot.send_message(user_id, "Unfortunately, your product was not approved.")
 
+def show_increment_options(message, product, user_id):
+    # Increment options up to 1000% as per your request
+    increments = [5, 7.5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 125, 150, 175, 200, 
+                  250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000]
+    markup = InlineKeyboardMarkup()
+    
+    # Add two buttons per row for increments
+    buttons = [InlineKeyboardButton(f"{inc}%", callback_data=f"increment_{inc}_{user_id}") for inc in increments]
+    for i in range(0, len(buttons), 2):
+        markup.row(*buttons[i:i+2])
+    
+    # Display increment options to the admin
+    bot.send_message(
+        message.chat.id, 
+        f"Select the price increment for {product['name']}:\nSeller's Price: {product['price']}",
+        reply_markup=markup
+    )
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("increment_"))
 def apply_increment(call):
     _, percent, user_id = call.data.split("_")
     user_id = int(user_id)
     product = user_data[user_id]["product"]
     
-    incremented_price = product['price'] * (1 + int(percent) / 100)
+    incremented_price = product['price'] * (1 + float(percent) / 100)
     product['final_price'] = round(incremented_price, 2)
     
     markup = InlineKeyboardMarkup()
@@ -173,6 +182,14 @@ def apply_increment(call):
         f"Increment of {percent}% applied.\nNew Price: {product['final_price']}\n\nReady to post?",
         reply_markup=markup
     )
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("back_"))
+def go_back_to_increment(call):
+    user_id = int(call.data.split("_")[1])
+    product = user_data[user_id]["product"]
+    
+    # Re-display increment options
+    show_increment_options(call.message, product, user_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("post_"))
 def post_to_channel(call):
