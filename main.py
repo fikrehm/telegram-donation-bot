@@ -130,6 +130,7 @@ def handle_confirmation(call):
         )
 
     elif call.data == "edit_sell":
+        bot.edit_message_reply_markup(call.message.chat.id, confirmation_msg_id, reply_markup=None)
         bot.send_message(call.message.chat.id, "Let's edit your product details. Starting from the beginning.")
         initiate_sell(call.message)
 
