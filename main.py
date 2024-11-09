@@ -21,41 +21,43 @@ user_data = {}
 def welcome_message(message):
     bot.reply_to(
         message, 
-        "Welcome to the Buy & Sell Bot! 🎉\n\n"
-        "To list an item, simply type /sell, and I’ll guide you step-by-step!"
+        "Welcome to the Delala Bot! 🎉\n\n"
+        "To sell an item, simply type /sell, and I’ll guide you step-by-step! \n\"
+        "እንኳን ወደ ደላላ ቦት በደህና መጡ! 🎉\n\n"
+        "ዕቃ ለመሸጥ /sell ይጻፉ"
     )
 
 # Step 2: Sell Command to Collect Item Details
 @bot.message_handler(commands=['sell'])
 def initiate_sell(message):
-    bot.reply_to(message, "Let's start listing your item for sale! 🛒\nFirst, please enter the **name of the product**:")
+    bot.reply_to(message, "Let's start listing your item for sale! 🛒\nFirst, please enter the **name of the product**(የምትሸጠው ዕቃ ስም):")
     bot.register_next_step_handler(message, get_product_name)
 
 # Step 3: Get Product Details Step-by-Step
 def get_product_name(message):
-    if not message.text.isalnum():
-        bot.reply_to(message, "Please enter a valid product name to proceed with your listing.")
-        return
-
-    product = {"user_id": message.from_user.id}
-    product['name'] = message.text
-    bot.reply_to(message, "Great! Now, what category does it fall under (e.g., Electronics, Clothing)?")
-    bot.register_next_step_handler(message, get_category, product)
+    try:
+        product = {"user_id": message.from_user.id}
+        product['name'] = message.text
+        bot.reply_to(message, "Great! Now, what category does it fall under (e.g., Electronics, Clothing)?(የሚሸጡት ዕቃ ዓይነት)")
+        bot.register_next_step_handler(message, get_category, product)
+    except ValueError:
+        bot.reply_to(message, "Please enter a valid product name to proceed with your listing.(እባክዎ ትክክለኛ ስም ያስገቡ)")
+        bot.register_next_step_handler(message, get_product_name , product)
 
 def get_category(message, product):
     product['category'] = message.text
-    bot.reply_to(message, "Please provide a description (optional). You can skip this by typing 'skip'.")
+    bot.reply_to(message, "Please provide a description (optional). You can skip this by typing 'skip'.(ስለ ዕቃዎ የበለጠ ያብራሩ)")
     bot.register_next_step_handler(message, get_description, product)
 
 def get_description(message, product):
     product['description'] = message.text if message.text.lower() != 'skip' else None
-    bot.reply_to(message, "How much are you selling it for? (Enter just the number, e.g., 100)")
+    bot.reply_to(message, "How much are you selling it for?(የእቃዎ ዋጋ) (Enter just the number, e.g., 100)")
     bot.register_next_step_handler(message, get_price, product)
 
 def get_price(message, product):
     try:
         product['price'] = int(message.text)
-        bot.reply_to(message, "Lastly, please provide your contact phone number.")
+        bot.reply_to(message, "Lastly, please provide your contact phone number.(ስልክ ቁጥር)")
         bot.register_next_step_handler(message, get_phone, product)
     except ValueError:
         bot.reply_to(message, "Please enter a valid number for the price.")
@@ -63,12 +65,12 @@ def get_price(message, product):
 
 def get_phone(message, product):
     product['phone'] = message.text
-    bot.reply_to(message, "Now, please send a photo of the product.")
+    bot.reply_to(message, "Now, please send a photo of the product.(የእቃው ፎቶ)")
     bot.register_next_step_handler(message, get_photo, product)
 
 def get_photo(message, product):
     if message.content_type != 'photo':
-        bot.reply_to(message, "Please send a valid photo.")
+        bot.reply_to(message, "Please send a valid photo. /sell to start again! ")
         bot.register_next_step_handler(message, get_photo, product)
         return
     product['photo'] = message.photo[-1].file_id
